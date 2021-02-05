@@ -19,33 +19,23 @@ const MIMETYPE: Record<string, string> = {
     '.mjs': 'application/javascript',
 };
 
-export const paramsToObject = (params: string, sep: string): RouterParams => {
-    const ret: any = {};
-    params.split(sep).forEach(pair => {
-        const [ key, value ] = pair.split('=');
-        ret[key] = value;
-    });
-    return ret;
-}
-
 type RouterMethod = ('GET' | 'POST' | 'PATCH' | 'DELETE' | 'OPTIONS');
-type RouterParams = { [key: string]: string };
 type RouterHandler<T> = (context: RouterContext<T>, next?: () => void) => (Promise<void> | void);
 
 class RouterContext<T> {
     private _req: ServerRequest;
     private _props: T;
-    private _params: RouterParams;
+    private _params: Record<string, string>;
     public get req(): ServerRequest {
         return this._req;
     }
-    public get props(): T {
+    public get props(): Readonly<T> {
         return this._props;
     }
-    public get params(): any {
+    public get params(): Readonly<Record<string, string>> {
         return this._params;
     }
-    public constructor(req: ServerRequest, props: T, params: RouterParams) {
+    public constructor(req: ServerRequest, props: T, params: Record<string, string>) {
         this._req = req;
         this._props = props;
         this._params = params;
@@ -136,11 +126,11 @@ class RouterItem<T> {
             return true;
         }
     }
-    public matches(method: string, parts: string[]): { matches: boolean, params: RouterParams } {
+    public matches(method: string, parts: string[]): { matches: boolean, params: Record<string, string> } {
         if (method.toUpperCase() === this._method) {
             if (((this._parts.length === parts.length) && !this._variadic)
             || ((this._parts.length <= parts.length) && this._variadic)) {
-                const params: RouterParams = {};
+                const params: Record<string, string> = {};
                 for (let i = 0; i < this._parts.length; i++) {
                     const lpart = this._parts[i];
                     const rpart = parts[i];
@@ -280,10 +270,19 @@ export const extractPath = (req: ServerRequest): string => {
     }
 }
 
-export const extractSearch = (req: ServerRequest): RouterParams => {
+export const paramsToObject = (params: string, sep: string): Record<string, string> => {
+    const ret: any = {};
+    params.split(sep).forEach(pair => {
+        const [ key, value ] = pair.split('=');
+        ret[key] = value;
+    });
+    return ret;
+}
+
+export const extractSearch = (req: ServerRequest): Record<string, string> => {
     const __req: any = (req as any);
     if (__req.hasOwnProperty('__search')) {
-        return (__req.__search as RouterParams);
+        return (__req.__search as Record<string, string>);
     } else {
         if (!__req.hasOwnProperty('__url')) {
             __req.__url = new URL(req.url, 'http://whatever');
@@ -292,10 +291,10 @@ export const extractSearch = (req: ServerRequest): RouterParams => {
     }
 }
 
-export const extractHash = (req: ServerRequest): RouterParams => {
+export const extractHash = (req: ServerRequest): Record<string, string> => {
     const __req: any = (req as any);
     if (__req.hasOwnProperty('__hash')) {
-        return (__req.__hash as RouterParams);
+        return (__req.__hash as Record<string, string>);
     } else {
         if (!__req.hasOwnProperty('__url')) {
             __req.__url = new URL(req.url, 'http://whatever');
@@ -304,11 +303,20 @@ export const extractHash = (req: ServerRequest): RouterParams => {
     }
 }
 
-export const extractCookie = (req: ServerRequest): RouterParams => {
+export const extractCookie = (req: ServerRequest): Record<string, string> => {
     const __req: any = (req as any);
     if (__req.hasOwnProperty('__cookie')) {
-        return (__req.__cookie as RouterParams);
+        return (__req.__cookie as Record<string, string>);
     } else {
         return (__req.__cookie = paramsToObject(req.headers.get('Cookie') ?? '', '&'));
     }
+}
+
+export const extractHeaders = (req: ServerRequest): Record<string, string> => {
+    const __req: any = (req as any);
+    if (!__req.hasOwnProperty('__headers')) {
+        __req.__headers = {};
+        req.headers.forEach((value, key) => __req.__headers[key] = value);
+    }
+    return (__req.__headers as Record<string, string>);
 }
