@@ -21,6 +21,7 @@ const MIMETYPE: Record<string, string> = {
 
 type RouterMethod = ('GET' | 'POST' | 'PATCH' | 'DELETE' | 'OPTIONS');
 type RouterHandler<T> = (context: RouterContext<T>, next?: () => void) => (Promise<void> | void);
+type RouterItemPart = { name: string, param: boolean };
 
 class RouterContext<T> {
     private _req: ServerRequest;
@@ -46,18 +47,18 @@ class RouterItem<T> {
     private _method: RouterMethod;
     private _pattern: string;
     private _handlers: RouterHandler<T>[];
-    private _parts: { name: string, param: boolean }[];
+    private _parts: RouterItemPart[];
     private _variadic: boolean;
     public get method(): RouterMethod {
         return this._method;
     };
-    public get pattern(): string {
+    public get pattern(): Readonly<string> {
         return this._pattern;
     };
-    public get handlers(): RouterHandler<T>[] {
+    public get handlers(): Readonly<RouterHandler<T>[]> {
         return this._handlers;
     };
-    public get parts(): { name: string, param: boolean }[] {
+    public get parts(): Readonly<RouterItemPart[]> {
         return this._parts;
     };
     public get variadic(): boolean {
