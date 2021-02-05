@@ -17,9 +17,9 @@ const MIMETYPE: Record<string, string> = {
     '.css': 'text/css',
     '.wasm': 'application/wasm',
     '.mjs': 'application/javascript',
-}
+};
 
-export const paramsToObject = (params: string, sep: string): object => {
+export const paramsToObject = (params: string, sep: string): RouterParams => {
     const ret: any = {};
     params.split(sep).forEach(pair => {
         const [ key, value ] = pair.split('=');
@@ -33,11 +33,11 @@ type RouterParams = { [key: string]: string };
 type RouterHandler<T> = (context: RouterContext<T>, next?: () => void) => (Promise<void> | void);
 
 class RouterContext<T> {
-    private _request: ServerRequest;
-    private _params: RouterParams;
+    private _req: ServerRequest;
     private _props: T;
-    public get request(): ServerRequest {
-        return this._request;
+    private _params: RouterParams;
+    public get req(): ServerRequest {
+        return this._req;
     }
     public get props(): T {
         return this._props;
@@ -45,95 +45,10 @@ class RouterContext<T> {
     public get params(): any {
         return this._params;
     }
-    public get path(): string {
-        const req: any = (this._request as any);
-        if (req.hasOwnProperty('__path')) {
-            return (req.__path as string);
-        } else {
-            if (!req.hasOwnProperty('__url')) {
-                req.__url = new URL(this._request.url, 'http://whatever');
-            }
-            return (req.__path = req.__url.pathname);
-        }
-    }
-    public get search(): object {
-        const req: any = (this._request as any);
-        if (req.hasOwnProperty('__search')) {
-            return (req.__search as object);
-        } else {
-            if (!req.hasOwnProperty('__url')) {
-                req.__url = new URL(this._request.url, 'http://whatever');
-            }
-            return (req.__search = paramsToObject(req.__url.search.replace('?', ''), '&'));
-        }
-    }
-    public get hash(): object {
-        const req: any = (this._request as any);
-        if (req.hasOwnProperty('__hash')) {
-            return (req.__hash as object);
-        } else {
-            if (!req.hasOwnProperty('__url')) {
-                req.__url = new URL(this._request.url, 'http://whatever');
-            }
-            return (req.__hash = paramsToObject(req.__url.hash.replace('#', ''), '&'));
-        }
-    }
-    public constructor(request: ServerRequest, props: T, params: RouterParams) {
-        this._request = request;
+    public constructor(req: ServerRequest, props: T, params: RouterParams) {
+        this._req = req;
         this._props = props;
         this._params = params;
-    }
-    public respondJSON(value: object): void {
-        const content = JSON.stringify(value);
-        this._request.respond({
-            status: 200,
-            body: content,
-            headers: new Headers([
-                ['Content-Type', 'application/json'],
-                ['Content-Length', content.length.toString()]
-            ])
-        });
-    }
-    public respondFile(path: string): void {
-        if (path.includes('../') || path.includes('./')) {
-            this._request.respond({ status: 404 });
-        } else {
-            if (FS.existsSync(path)) {
-                const size = Deno.statSync(path).size.toString()
-                const file = Deno.openSync(path, { read: true });
-                const type_ = MIMETYPE[Path.extname(path)];
-                const headers = [['Content-Length', size]];
-                if (type_ !== undefined) {
-                    headers.push(['Content-Type', type_]);
-                }
-                this._request.respond({
-                    status: 200,
-                    body: file,
-                    headers: new Headers(headers)
-                });
-                this._request.done.then(() => file.close());
-            } else {
-                this._request.respond({ status: 404 });
-            }
-        }
-    }
-    public respondCORS(options: { allowOrigin: string, allowMethods: string, allowHeaders: string, allowCredentials: boolean }): void {
-        this._request.respond({
-            headers: new Headers([
-                ['Access-Control-Allow-Origin', options.allowOrigin],
-                ['Access-Control-Allow-Methods', options.allowMethods],
-                ['Access-Control-Allow-Headers', options.allowHeaders],
-                ['Access-Control-Allow-Credentials', options.allowCredentials ? 'true' : 'false']
-            ])
-        });
-    }
-    public respondLocation(url: string): void {
-        this._request.respond({
-            status: 302,
-            headers: new Headers([
-                ['Location', encodeURI(url)]
-            ])
-        });
     }
 }
 
@@ -253,7 +168,7 @@ class RouterItem<T> {
 
 export class Router<T> {
     private _routes: RouterItem<T>[] = [];
-    private _addRoute(method: RouterMethod, pattern: string, head: RouterHandler<T>, ...tail: RouterHandler<T>[]) {
+    private _add(method: RouterMethod, pattern: string, head: RouterHandler<T>, ...tail: RouterHandler<T>[]) {
         const item = new RouterItem<T>(method, pattern, head, ...tail);
         for (const i of this._routes) {
             if (item.conflicts(i)) {
@@ -263,36 +178,137 @@ export class Router<T> {
         this._routes.push(item);
     }
     public GET(pattern: string, head: RouterHandler<T>, ...tail: RouterHandler<T>[]): void {
-        this._addRoute('GET', pattern, head, ...tail);
+        this._add('GET', pattern, head, ...tail);
     }
     public POST(pattern: string, head: RouterHandler<T>, ...tail: RouterHandler<T>[]): void {
-        this._addRoute('POST', pattern, head, ...tail);
+        this._add('POST', pattern, head, ...tail);
     }
     public PATCH(pattern: string, head: RouterHandler<T>, ...tail: RouterHandler<T>[]): void {
-        this._addRoute('PATCH', pattern, head, ...tail);
+        this._add('PATCH', pattern, head, ...tail);
     }
     public DELETE(pattern: string, head: RouterHandler<T>, ...tail: RouterHandler<T>[]): void {
-        this._addRoute('DELETE', pattern, head, ...tail);
+        this._add('DELETE', pattern, head, ...tail);
     }
     public OPTIONS(pattern: string, head: RouterHandler<T>, ...tail: RouterHandler<T>[]): void {
-        this._addRoute('OPTIONS', pattern, head, ...tail);
+        this._add('OPTIONS', pattern, head, ...tail);
     }
-    public async process(request: ServerRequest, props: T): Promise<boolean> {
-        const urlobj = new URL(request.url, 'http://whatever');
+    public async process(req: ServerRequest, props: T): Promise<boolean> {
+        const urlobj = new URL(req.url, 'http://whatever');
         const parts = urlobj.pathname.split('/').filter(i => !!i);
 
         for (const route of this._routes) {
-            const res = route.matches(request.method, parts);
+            const res = route.matches(req.method, parts);
             if (res.matches) {
-                const context = new RouterContext(request, props, res.params);
+                const context = new RouterContext(req, props, res.params);
                 for (const handler of route.handlers) {
                     let next = false;
-                    handler(context, () => { next = true; });
+                    await handler(context, () => { next = true; });
                     if (!next) break;
                 }
                 return true;
             }
         }
         return false;
+    }
+}
+
+export const respondJSON = (req: ServerRequest, value: object): void => {
+    const content = JSON.stringify(value);
+    req.respond({
+        status: 200,
+        body: content,
+        headers: new Headers([
+            ['Content-Type', 'application/json'],
+            ['Content-Length', content.length.toString()]
+        ])
+    });
+}
+
+export const respondFile = (req: ServerRequest, path: string): void => {
+    if (path.includes('../') || path.includes('./')) {
+        req.respond({ status: 404 });
+    } else {
+        if (FS.existsSync(path)) {
+            const size = Deno.statSync(path).size.toString()
+            const file = Deno.openSync(path, { read: true });
+            const type_ = MIMETYPE[Path.extname(path)];
+            const headers = [['Content-Length', size]];
+            if (type_ !== undefined) {
+                headers.push(['Content-Type', type_]);
+            }
+            req.respond({
+                status: 200,
+                body: file,
+                headers: new Headers(headers)
+            });
+            req.done.then(() => file.close());
+        } else {
+            req.respond({ status: 404 });
+        }
+    }
+}
+
+export const respondCORS = (req: ServerRequest, options: { allowOrigin: string, allowMethods: string, allowHeaders: string, allowCredentials: boolean }): void => {
+    req.respond({
+        headers: new Headers([
+            ['Access-Control-Allow-Origin', options.allowOrigin],
+            ['Access-Control-Allow-Methods', options.allowMethods],
+            ['Access-Control-Allow-Headers', options.allowHeaders],
+            ['Access-Control-Allow-Credentials', options.allowCredentials ? 'true' : 'false']
+        ])
+    });
+}
+
+export const respondLocation = (req: ServerRequest, url: string): void => {
+    req.respond({
+        status: 302,
+        headers: new Headers([
+            ['Location', encodeURI(url)]
+        ])
+    });
+}
+
+export const extractPath = (req: ServerRequest): string => {
+    const __req: any = (req as any);
+    if (__req.hasOwnProperty('__path')) {
+        return (__req.__path as string);
+    } else {
+        if (!__req.hasOwnProperty('__url')) {
+            __req.__url = new URL(req.url, 'http://whatever');
+        }
+        return (__req.__path = __req.__url.pathname);
+    }
+}
+
+export const extractSearch = (req: ServerRequest): RouterParams => {
+    const __req: any = (req as any);
+    if (__req.hasOwnProperty('__search')) {
+        return (__req.__search as RouterParams);
+    } else {
+        if (!__req.hasOwnProperty('__url')) {
+            __req.__url = new URL(req.url, 'http://whatever');
+        }
+        return (__req.__search = paramsToObject(__req.__url.search.replace('?', ''), '&'));
+    }
+}
+
+export const extractHash = (req: ServerRequest): RouterParams => {
+    const __req: any = (req as any);
+    if (__req.hasOwnProperty('__hash')) {
+        return (__req.__hash as RouterParams);
+    } else {
+        if (!__req.hasOwnProperty('__url')) {
+            __req.__url = new URL(req.url, 'http://whatever');
+        }
+        return (__req.__hash = paramsToObject(__req.__url.hash.replace('#', ''), '&'));
+    }
+}
+
+export const extractCookie = (req: ServerRequest): RouterParams => {
+    const __req: any = (req as any);
+    if (__req.hasOwnProperty('__cookie')) {
+        return (__req.__cookie as RouterParams);
+    } else {
+        return (__req.__cookie = paramsToObject(req.headers.get('Cookie') ?? '', '&'));
     }
 }
