@@ -203,9 +203,9 @@ export class Router<T> {
     }
 }
 
-export const respondJSON = (req: ServerRequest, value: object, options?: { status: number }): void => {
+export const respondJSON = async (req: ServerRequest, value: object, options?: { status: number }): Promise<void> => {
     const content = JSON.stringify(value);
-    req.respond({
+    return req.respond({
         status: options?.status ?? 200,
         body: content,
         headers: new Headers([
@@ -215,9 +215,9 @@ export const respondJSON = (req: ServerRequest, value: object, options?: { statu
     });
 }
 
-export const respondFile = (req: ServerRequest, path: string, options?: { status: number }): void => {
+export const respondFile = async (req: ServerRequest, path: string, options?: { status: number }): Promise<void> => {
     if (path.includes('../') || path.includes('./')) {
-        req.respond({ status: 404 });
+        return req.respond({ status: 404 });
     } else {
         if (FS.existsSync(path)) {
             const size = Deno.statSync(path).size.toString()
@@ -227,20 +227,23 @@ export const respondFile = (req: ServerRequest, path: string, options?: { status
             if (type_ !== undefined) {
                 headers.push(['Content-Type', type_]);
             }
-            req.respond({
-                status: options?.status ?? 200,
-                body: file,
-                headers: new Headers(headers)
-            });
-            req.done.then(() => file.close());
+            try {
+                await req.respond({
+                    status: options?.status ?? 200,
+                    body: file,
+                    headers: new Headers(headers)
+                });
+            } finally {
+                file.close();
+            }
         } else {
-            req.respond({ status: 404 });
+            return req.respond({ status: 404 });
         }
     }
 }
 
-export const respondCORS = (req: ServerRequest, options: { allowOrigin: string, allowMethods: string, allowHeaders: string, allowCredentials: boolean }): void => {
-    req.respond({
+export const respondCORS = async (req: ServerRequest, options: { allowOrigin: string, allowMethods: string, allowHeaders: string, allowCredentials: boolean }): Promise<void> => {
+    return req.respond({
         headers: new Headers([
             ['Access-Control-Allow-Origin', options.allowOrigin],
             ['Access-Control-Allow-Methods', options.allowMethods],
