@@ -203,10 +203,10 @@ export class Router<T> {
     }
 }
 
-export const respondJSON = (req: ServerRequest, value: object): void => {
+export const respondJSON = (req: ServerRequest, value: object, options?: { status: number }): void => {
     const content = JSON.stringify(value);
     req.respond({
-        status: 200,
+        status: options?.status ?? 200,
         body: content,
         headers: new Headers([
             ['Content-Type', 'application/json'],
@@ -215,7 +215,7 @@ export const respondJSON = (req: ServerRequest, value: object): void => {
     });
 }
 
-export const respondFile = (req: ServerRequest, path: string): void => {
+export const respondFile = (req: ServerRequest, path: string, options?: { status: number }): void => {
     if (path.includes('../') || path.includes('./')) {
         req.respond({ status: 404 });
     } else {
@@ -228,7 +228,7 @@ export const respondFile = (req: ServerRequest, path: string): void => {
                 headers.push(['Content-Type', type_]);
             }
             req.respond({
-                status: 200,
+                status: options?.status ?? 200,
                 body: file,
                 headers: new Headers(headers)
             });
