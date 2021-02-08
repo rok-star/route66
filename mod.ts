@@ -203,19 +203,20 @@ export class Router<T> {
     }
 }
 
-export const respondJSON = async (req: ServerRequest, value: object, options?: { status: number }): Promise<void> => {
+export const respondJSON = async (req: ServerRequest, value: object, options?: { status?: number, headers?: Record<string, string> }): Promise<void> => {
     const content = JSON.stringify(value);
     return req.respond({
         status: options?.status ?? 200,
         body: content,
         headers: new Headers([
             ['Content-Type', 'application/json'],
-            ['Content-Length', content.length.toString()]
+            ['Content-Length', content.length.toString()],
+            ...Object.entries(options?.headers ?? {})
         ])
     });
 }
 
-export const respondFile = async (req: ServerRequest, path: string, options?: { status: number }): Promise<void> => {
+export const respondFile = async (req: ServerRequest, path: string, options?: { status?: number, headers?: Record<string, string> }): Promise<void> => {
     if (path.includes('../') || path.includes('./')) {
         return req.respond({ status: 404 });
     } else {
@@ -223,7 +224,7 @@ export const respondFile = async (req: ServerRequest, path: string, options?: { 
             const size = Deno.statSync(path).size.toString()
             const file = Deno.openSync(path, { read: true });
             const type_ = MIMETYPE[Path.extname(path)];
-            const headers = [['Content-Length', size]];
+            const headers = [['Content-Length', size], ...Object.entries(options?.headers ?? {})];
             if (type_ !== undefined) {
                 headers.push(['Content-Type', type_]);
             }
@@ -253,8 +254,8 @@ export const respondCORS = async (req: ServerRequest, options: { allowOrigin: st
     });
 }
 
-export const respondLocation = (req: ServerRequest, url: string): void => {
-    req.respond({
+export const respondLocation = async (req: ServerRequest, url: string): Promise<void> => {
+    return req.respond({
         status: 302,
         headers: new Headers([
             ['Location', encodeURI(url)]
