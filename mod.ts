@@ -352,7 +352,7 @@ export const readBodyAsText = async (req: ServerRequest): Promise<string> => {
     return (__req.__bodytext as string);
 }
 
-export const readBodyAsJSON = async (req: ServerRequest): Promise<any> => {
+export const readBodyAsJSON = async (req: ServerRequest): Promise<Record<string, string>> => {
     const __req: any = (req as any);
     if (!__req.hasOwnProperty('__bodyjson')) {
         const text = await readBodyAsText(req);
@@ -375,16 +375,31 @@ export const readBodyAsJSON = async (req: ServerRequest): Promise<any> => {
 export function bodyJSON<T>(key: keyof T, onerror?: (e: any) => void): RouterHandler<T> {
     return async (context: RouterContext<T>, next: () => void): Promise<void> => {
         try {
-            context.props[key] = await readBodyAsJSON(context.req);
+            context.props[key] = (await readBodyAsJSON(context.req)) as any;
             next();
         } catch (e) {
             if (e instanceof UnsupportedMediaTypeError) {
-                context.req.respond({ status: 415 }).catch(onerror ?? (() => {}));
+                context.req.respond({ status: 415 })
+                    .catch(onerror ?? (() => {}));
             } else if (e instanceof JSONParseError) {
-                context.req.respond({ status: 400 }).catch(onerror ?? (() => {}));
+                context.req.respond({ status: 400 })
+                    .catch(onerror ?? (() => {}));
             } else {
-                context.req.respond({ status: 500 }).catch(onerror ?? (() => {}));
+                context.req.respond({ status: 500 })
+                    .catch(onerror ?? (() => {}));
             }
+        }
+    }
+}
+
+export function bodyText<T>(key: keyof T, onerror?: (e: any) => void): RouterHandler<T> {
+    return async (context: RouterContext<T>, next: () => void): Promise<void> => {
+        try {
+            context.props[key] = (await readBodyAsText(context.req)) as any;
+            next();
+        } catch (e) {
+            context.req.respond({ status: 500 })
+                .catch(onerror ?? (() => {}));
         }
     }
 }
