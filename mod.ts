@@ -1,6 +1,6 @@
 import { ServerRequest } from 'https://deno.land/std/http/server.ts'
-import * as Path from 'https://deno.land/std/path/mod.ts'
-import * as FS from 'https://deno.land/std/fs/mod.ts'
+import * as Path from 'https://deno.land/std@0.85.0/path/mod.ts'
+import * as FS from 'https://deno.land/std@0.85.0/fs/mod.ts'
 
 const MIMETYPE: Record<string, string> = {
     '.md': 'text/markdown',
@@ -19,29 +19,22 @@ const MIMETYPE: Record<string, string> = {
     '.mjs': 'application/javascript',
 };
 
-type RouterMethod = ('GET' | 'POST' | 'PATCH' | 'DELETE' | 'OPTIONS');
-type RouterHandler<T> = (context: RouterContext<T>, next?: () => void) => (Promise<void> | void);
-type RouterItemPart = { name: string, param: boolean };
-
-class RouterContext<T> {
-    private _req: ServerRequest;
-    private _props: T;
-    private _params: Record<string, string>;
-    public get req(): ServerRequest {
-        return this._req;
-    }
-    public get props(): Readonly<T> {
-        return this._props;
-    }
-    public get params(): Readonly<Record<string, string>> {
-        return this._params;
-    }
-    public constructor(req: ServerRequest, props: T, params: Record<string, string>) {
-        this._req = req;
-        this._props = props;
-        this._params = params;
+export class JSONParseError extends Error {
+    public constructor(message: string) {
+        super(message);
+        Object.setPrototypeOf(this, JSONParseError.prototype);
     }
 }
+
+export class UnsupportedMediaTypeError extends Error {
+    public constructor(message: string) {
+        super(message);
+        Object.setPrototypeOf(this, UnsupportedMediaTypeError.prototype);
+    }
+}
+
+type RouterMethod = ('GET' | 'POST' | 'PATCH' | 'DELETE' | 'OPTIONS');
+type RouterItemPart = { name: string, param: boolean };
 
 class RouterItem<T> {
     private _method: RouterMethod;
@@ -157,6 +150,28 @@ class RouterItem<T> {
     }
 }
 
+export type RouterHandler<T> = (context: RouterContext<T>, next: () => void) => (Promise<void> | void);
+
+export class RouterContext<T> {
+    private _req: ServerRequest;
+    private _props: T;
+    private _params: Record<string, string>;
+    public get req(): ServerRequest {
+        return this._req;
+    }
+    public get props(): T {
+        return this._props;
+    }
+    public get params(): Readonly<Record<string, string>> {
+        return this._params;
+    }
+    public constructor(req: ServerRequest, props: T, params: Record<string, string>) {
+        this._req = req;
+        this._props = props;
+        this._params = params;
+    }
+}
+
 export class Router<T> {
     private _routes: RouterItem<T>[] = [];
     private _add(method: RouterMethod, pattern: string, head: RouterHandler<T>, ...tail: RouterHandler<T>[]) {
@@ -194,7 +209,9 @@ export class Router<T> {
                 for (const handler of route.handlers) {
                     let next = false;
                     await handler(context, () => { next = true; });
-                    if (!next) break;
+                    if (!next) {
+                        break;
+                    }
                 }
                 return true;
             }
@@ -254,25 +271,14 @@ export const respondCORS = async (req: ServerRequest, options: { allowOrigin: st
     });
 }
 
-export const respondLocation = async (req: ServerRequest, url: string): Promise<void> => {
+export const respondLocation = async (req: ServerRequest, url: string, options?: { headers?: Record<string, string> }): Promise<void> => {
     return req.respond({
         status: 302,
         headers: new Headers([
-            ['Location', encodeURI(url)]
+            ['Location', encodeURI(url)],
+            ...Object.entries(options?.headers ?? {})
         ])
     });
-}
-
-export const extractPath = (req: ServerRequest): string => {
-    const __req: any = (req as any);
-    if (__req.hasOwnProperty('__path')) {
-        return (__req.__path as string);
-    } else {
-        if (!__req.hasOwnProperty('__url')) {
-            __req.__url = new URL(req.url, 'http://whatever');
-        }
-        return (__req.__path = __req.__url.pathname);
-    }
 }
 
 export const paramsToObject = (params: string, sep: string): Record<string, string> => {
@@ -284,7 +290,19 @@ export const paramsToObject = (params: string, sep: string): Record<string, stri
     return ret;
 }
 
-export const extractSearch = (req: ServerRequest): Record<string, string> => {
+export const getPath = (req: ServerRequest): string => {
+    const __req: any = (req as any);
+    if (__req.hasOwnProperty('__path')) {
+        return (__req.__path as string);
+    } else {
+        if (!__req.hasOwnProperty('__url')) {
+            __req.__url = new URL(req.url, 'http://whatever');
+        }
+        return (__req.__path = __req.__url.pathname);
+    }
+}
+
+export const getSearch = (req: ServerRequest): Record<string, string> => {
     const __req: any = (req as any);
     if (__req.hasOwnProperty('__search')) {
         return (__req.__search as Record<string, string>);
@@ -296,7 +314,7 @@ export const extractSearch = (req: ServerRequest): Record<string, string> => {
     }
 }
 
-export const extractHash = (req: ServerRequest): Record<string, string> => {
+export const getHash = (req: ServerRequest): Record<string, string> => {
     const __req: any = (req as any);
     if (__req.hasOwnProperty('__hash')) {
         return (__req.__hash as Record<string, string>);
@@ -308,7 +326,7 @@ export const extractHash = (req: ServerRequest): Record<string, string> => {
     }
 }
 
-export const extractCookie = (req: ServerRequest): Record<string, string> => {
+export const getCookie = (req: ServerRequest): Record<string, string> => {
     const __req: any = (req as any);
     if (__req.hasOwnProperty('__cookie')) {
         return (__req.__cookie as Record<string, string>);
@@ -317,11 +335,56 @@ export const extractCookie = (req: ServerRequest): Record<string, string> => {
     }
 }
 
-export const extractHeaders = (req: ServerRequest): Record<string, string> => {
+export const getHeaders = (req: ServerRequest): Record<string, string> => {
     const __req: any = (req as any);
     if (!__req.hasOwnProperty('__headers')) {
         __req.__headers = {};
         req.headers.forEach((value, key) => __req.__headers[key] = value);
     }
     return (__req.__headers as Record<string, string>);
+}
+
+export const readBodyAsText = async (req: ServerRequest): Promise<string> => {
+    const __req: any = (req as any);
+    if (!__req.hasOwnProperty('__bodytext')) {
+        __req.__bodytext = (new TextDecoder()).decode(await Deno.readAll(req.body));
+    }
+    return (__req.__bodytext as string);
+}
+
+export const readBodyAsJSON = async (req: ServerRequest): Promise<any> => {
+    const __req: any = (req as any);
+    if (!__req.hasOwnProperty('__bodyjson')) {
+        const text = await readBodyAsText(req);
+        const type = req.headers.get('Content-Type');
+        if (type === 'application/json') {
+            try {
+                __req.__bodyjson = JSON.parse(text);
+            } catch (e) {
+                throw new JSONParseError(e.message);
+            }
+        } else if (type === 'application/x-www-form-urlencoded') {
+            __req.__bodyjson = paramsToObject(decodeURIComponent(text), '&');
+        } else {
+            throw new UnsupportedMediaTypeError(`content type "${type}" not supported`);
+        }
+    }
+    return (__req.__bodyjson as any);
+}
+
+export function bodyJSON<T>(key: keyof T, onerror?: (e: any) => void): RouterHandler<T> {
+    return async (context: RouterContext<T>, next: () => void): Promise<void> => {
+        try {
+            context.props[key] = await readBodyAsJSON(context.req);
+            next();
+        } catch (e) {
+            if (e instanceof UnsupportedMediaTypeError) {
+                context.req.respond({ status: 415 }).catch(onerror ?? (() => {}));
+            } else if (e instanceof JSONParseError) {
+                context.req.respond({ status: 400 }).catch(onerror ?? (() => {}));
+            } else {
+                context.req.respond({ status: 500 }).catch(onerror ?? (() => {}));
+            }
+        }
+    }
 }
