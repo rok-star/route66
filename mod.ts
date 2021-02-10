@@ -26,10 +26,10 @@ export class JSONParseError extends Error {
     }
 }
 
-export class UnsupportedMediaTypeError extends Error {
+export class NotAcceptableError extends Error {
     public constructor(message: string) {
         super(message);
-        Object.setPrototypeOf(this, UnsupportedMediaTypeError.prototype);
+        Object.setPrototypeOf(this, NotAcceptableError.prototype);
     }
 }
 
@@ -366,7 +366,7 @@ export const readBodyAsJSON = async (req: ServerRequest): Promise<Record<string,
         } else if (type === 'application/x-www-form-urlencoded') {
             __req.__bodyjson = paramsToObject(decodeURIComponent(text), '&');
         } else {
-            throw new UnsupportedMediaTypeError(`content type "${type}" not supported`);
+            throw new NotAcceptableError(`content type "${type}" not supported`);
         }
     }
     return (__req.__bodyjson as any);
@@ -378,7 +378,7 @@ export function bodyJSON<T>(key: keyof T, onerror?: (e: any) => void): RouterHan
             context.props[key] = (await readBodyAsJSON(context.req)) as any;
             next();
         } catch (e) {
-            if (e instanceof UnsupportedMediaTypeError) {
+            if (e instanceof NotAcceptableError) {
                 context.req.respond({ status: 415 })
                     .catch(onerror ?? (() => {}));
             } else if (e instanceof JSONParseError) {
